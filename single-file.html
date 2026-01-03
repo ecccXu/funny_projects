@@ -1,37 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MediaPipe 隔空写字与交互系统（优化版）</title>
+    <title>魔法手势画板 | MediaPipe Hands</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
     <style>
-        body {
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        body {
             display: flex;
             flex-direction: column;
             align-items: center;
-            background-color: #f0f2f5;
-            margin: 0;
+            background-color: #121212;
+            color: #e0e0e0;
+            min-height: 100vh;
             padding: 20px;
-            color: #333;
         }
         h1 {
-            color: #1a73e8;
+            color: #4CAF50;
             margin-bottom: 20px;
         }
         #container {
             position: relative;
-            width: 80vw;
-            max-width: 1280px;
-            height: calc(80vw * 9 / 16);
-            max-height: 720px;
-            border: 2px solid #ccc;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            background-color: #fff;
+            width: 90vw;
+            max-width: 1024px;
+            height: calc(90vw * 9 / 16);
+            max-height: 576px;
+            border: 2px solid #444;
+            border-radius: 12px;
             overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         }
         #video {
             position: absolute;
@@ -41,6 +45,7 @@
             height: 100%;
             object-fit: cover;
             transform: scaleX(-1); /* 水平镜像，符合直觉 */
+            filter: brightness(0.7); /* 降低背景亮度，突出笔迹 */
         }
         #drawingCanvas {
             position: absolute;
@@ -48,108 +53,121 @@
             left: 0;
             width: 100%;
             height: 100%;
-            cursor: crosshair;
+            cursor: none;
         }
         #ui-panel {
             position: absolute;
-            top: 20px;
+            top: 50%;
             left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(255, 255, 255, 0.95);
+            transform: translate(-50%, -50%);
+            background-color: rgba(30, 30, 30, 0.95);
+            border: 1px solid #555;
             border-radius: 15px;
-            padding: 15px;
+            padding: 20px;
             display: none; /* 默认隐藏 */
-            gap: 15px;
+            gap: 20px;
             align-items: center;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
             z-index: 10;
+            backdrop-filter: blur(10px);
+        }
+        .tool-group, .color-group, .size-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
         }
         .tool-btn {
-            width: 50px;
-            height: 50px;
+            width: 60px;
+            height: 60px;
             border-radius: 50%;
-            border: 2px solid #ddd;
-            cursor: pointer;
+            border: 2px solid transparent;
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
             transition: all 0.2s ease;
-            background-color: #fff;
+            font-size: 24px;
+            color: #fff;
+            background-color: #333;
         }
-        .tool-btn:hover, .tool-btn.active {
-            border-color: #1a73e8;
-            background-color: #e8f0fe;
+        .tool-btn.active {
+            border-color: #4CAF50;
+            background-color: #444;
+            box-shadow: 0 0 15px #4CAF50;
         }
-        #pen-btn { background-color: #4CAF50; }
-        #eraser-btn { background-color: #f44336; }
         .color-btn {
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            border: 2px solid #fff;
+            border: 3px solid #555;
             cursor: pointer;
-            box-shadow: inset 0 0 0 2px #ddd;
             transition: transform 0.2s ease;
         }
-        .color-btn:hover {
-            transform: scale(1.1);
+        .color-btn.active {
+            transform: scale(1.2);
+            box-shadow: 0 0 10px currentColor;
         }
         .size-option {
-            width: 30px;
+            width: 50px;
             height: 8px;
-            background-color: #aaa;
+            background-color: #666;
             border-radius: 4px;
             cursor: pointer;
             transition: all 0.2s ease;
         }
-        .size-option:hover, .size-option.active {
-            background-color: #1a73e8;
+        .size-option.active {
+            background-color: #4CAF50;
+            box-shadow: 0 0 10px #4CAF50;
         }
-        #size-1 { width: 20px; }
-        #size-2 { width: 35px; }
-        #size-3 { width: 50px; }
-
-        .instruction {
-            margin-top: 15px;
-            font-size: 14px;
-            color: #555;
+        #size-1 { height: 5px; }
+        #size-2 { height: 12px; }
+        #size-3 { height: 20px; }
+        .instructions {
+            margin-top: 20px;
             text-align: center;
+            font-size: 14px;
+            color: #aaa;
+            max-width: 800px;
             line-height: 1.6;
         }
-        .instruction strong {
-            color: #1a73e8;
-        }
+        .instructions strong { color: #4CAF50; }
     </style>
 </head>
 <body>
-    <h1>MediaPipe 隔空写字与交互系统（优化版）</h1>
+    <h1>魔法手势画板</h1>
     <div id="container">
         <video id="video" playsinline autoplay muted></video>
         <canvas id="drawingCanvas"></canvas>
 
         <!-- UI 控制面板 -->
         <div id="ui-panel">
-            <button id="pen-btn" class="tool-btn active" title="笔 (Pen)"></button>
-            <button id="eraser-btn" class="tool-btn" title="橡皮擦 (Eraser)"></button>
-            <div class="colors">
-                <button class="color-btn active" style="background-color: #000000;" data-color="#000000"></button>
-                <button class="color-btn" style="background-color: #FF0000;" data-color="#FF0000"></button>
-                <button class="color-btn" style="background-color: #00FF00;" data-color="#00FF00"></button>
-                <button class="color-btn" style="background-color: #0000FF;" data-color="#0000FF"></button>
-                <button class="color-btn" style="background-color: #FFFF00;" data-color="#FFFF00"></button>
+            <div class="tool-group">
+                <div id="pen-btn" class="tool-btn active" title="画笔">✏️</div>
+                <div id="eraser-btn" class="tool-btn" title="橡皮擦">🧽</div>
             </div>
-            <div class="sizes">
+            <div class="color-group">
+                <div class="color-btn active" style="background-color: #FFFFFF;" data-color="#FFFFFF"></div>
+                <div class="color-btn" style="background-color: #FF3B30;" data-color="#FF3B30"></div>
+                <div class="color-btn" style="background-color: #FF9500;" data-color="#FF9500"></div>
+                <div class="color-btn" style="background-color: #FFCC00;" data-color="#FFCC00"></div>
+                <div class="color-btn" style="background-color: #4CD964;" data-color="#4CD964"></div>
+                <div class="color-btn" style="background-color: #5AC8FA;" data-color="#5AC8FA"></div>
+                <div class="color-btn" style="background-color: #007AFF;" data-color="#007AFF"></div>
+                <div class="color-btn" style="background-color: #5856D6;" data-color="#5856D6"></div>
+                <div class="color-btn" style="background-color: #FF2D55;" data-color="#FF2D55"></div>
+            </div>
+            <div class="size-group">
                 <div id="size-1" class="size-option active" data-size="5"></div>
                 <div id="size-2" class="size-option" data-size="15"></div>
-                <div id="size-3" class="size-option" data-size="25"></div>
+                <div id="size-3" class="size-option" data-size="30"></div>
             </div>
         </div>
     </div>
 
-    <div class="instruction">
+    <div class="instructions">
         <p><strong>手势指令:</strong></p>
-        <p>张开手掌 → 显示/隐藏控制面板 | 食指点击 → 选择功能 | 食指拇指相触 → 开始书写/擦除</p>
-        <p>双手食指张开 → 缩放画布 | 单手食指中指张开 → 清除画布 (雪花消散)</p>
+        <p>张开手掌 → 显示/隐藏控制面板 | 食指悬停点击 → 选择功能 | 食指拇指相触 → 开始书写/擦除</p>
+        <p>单手食指中指张开 → 清除画布 (雪花消散) | 双手食指张开 → 放大/缩小画布</p>
     </div>
 
     <script>
@@ -162,16 +180,19 @@
         let isDrawing = false;
         let lastX = 0;
         let lastY = 0;
-        let currentTool = 'pen'; // 'pen' or 'eraser'
-        let currentColor = '#000000';
+        let currentTool = 'pen';
+        let currentColor = '#FFFFFF';
         let currentSize = 5;
         let showUI = false;
-        let uiToggleTimeout = null; // UI防抖定时器
+        let uiToggleTimeout = null; // UI防抖
+        let isScaling = false;
+        let initialScaleDistance = 0;
+        let currentScale = 1;
 
-        // --- 雪花粒子系统 (用于消散效果) ---
+        // --- 雪花粒子系统 ---
         let flakes = [];
-        const GRAVITY = 0.1;
-        const WIND_SPEED = 0.5;
+        const GRAVITY = 0.05;
+        const WIND_SPEED = 0.2;
 
         class Flake {
             constructor(x, y, color, size) {
@@ -179,17 +200,17 @@
                 this.y = y;
                 this.size = size;
                 this.color = color;
-                this.velocityY = (Math.random() * 2) + 1; // 下落速度
-                this.velocityX = (Math.random() - 0.5) * WIND_SPEED; // 水平飘动
+                this.velocityY = Math.random() * 1.5 + 0.5;
+                this.velocityX = (Math.random() - 0.5) * WIND_SPEED * 2;
                 this.opacity = 1;
                 this.rotation = Math.random() * 360;
-                this.rotationSpeed = (Math.random() - 0.5) * 2;
+                this.rotationSpeed = (Math.random() - 0.5) * 1;
             }
             update() {
                 this.y += this.velocityY;
                 this.x += this.velocityX;
                 this.velocityY += GRAVITY;
-                this.opacity -= 0.004;
+                this.opacity -= 0.005;
                 this.rotation += this.rotationSpeed;
             }
             draw() {
@@ -199,7 +220,13 @@
                 canvasCtx.rotate(this.rotation * Math.PI / 180);
                 canvasCtx.fillStyle = this.color;
                 canvasCtx.beginPath();
-                canvasCtx.arc(0, 0, this.size / 2, 0, 2 * Math.PI);
+                canvasCtx.moveTo(0, -this.size);
+                for (let i = 0; i < 5; i++) {
+                    canvasCtx.rotate(Math.PI / 5);
+                    canvasCtx.lineTo(0, -this.size * 0.5);
+                    canvasCtx.rotate(Math.PI / 5);
+                    canvasCtx.lineTo(0, -this.size);
+                }
                 canvasCtx.fill();
                 canvasCtx.restore();
             }
@@ -235,173 +262,156 @@
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
 
-        // 优化：降低模型复杂度，减少算力消耗
         hands.setOptions({
             maxNumHands: 2,
-            modelComplexity: 0, // 轻量模型（原1）
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
+            modelComplexity: 0, // 使用轻量模型，提升性能
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
         });
 
         hands.onResults(onResults);
 
-        // 优化：降低摄像头分辨率，减少采集数据量
         const camera = new Camera(videoElement, {
-            onFrame: async () => { /* 改为手动控制帧率，此处留空 */ },
-            width: 640,  // 原1280
-            height: 360  // 原720
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 1280,
+            height: 720
         });
 
-        // 优化：手动控制检测帧率（20帧/秒），降低算力占用
-        setInterval(async () => {
-            if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
-                await hands.send({ image: videoElement });
-            }
-        }, 50);
-
         function onResults(results) {
-            const container = document.getElementById('container');
             const videoWidth = videoElement.videoWidth;
             const videoHeight = videoElement.videoHeight;
 
-            // 设置画布尺寸以匹配视频流
             canvasElement.width = videoWidth;
             canvasElement.height = videoHeight;
 
-            // 绘制雪花粒子
+            // 绘制雪花
             updateAndDrawFlakes();
 
-            // 如果没有检测到手，重置状态
             if (!results.multiHandLandmarks) {
                 isDrawing = false;
-                showUI = false;
-                uiPanel.style.display = 'none';
+                isScaling = false;
                 return;
             }
 
             let isHandOpen = false;
             let clearGestureDetected = false;
             let handsForScaling = [];
+            let activeHandLandmarks = null;
 
-            // 遍历所有检测到的手
             results.multiHandLandmarks.forEach((handLandmarks, index) => {
-                const handLabel = results.multiHandedness[index].label; // "Left" or "Right"
-
+                const handLabel = results.multiHandedness[index].label;
+                const wrist = handLandmarks[0];
                 const indexTip = handLandmarks[8];
                 const thumbTip = handLandmarks[4];
                 const middleTip = handLandmarks[12];
-
-                // 计算食指和拇指指尖的距离
-                const pinchDistance = Math.hypot(
-                    indexTip.x - thumbTip.x,
-                    indexTip.y - thumbTip.y
-                );
-
-                // 计算食指和中指指尖的距离（用于清除手势）
-                const clearDistance = Math.hypot(
-                    indexTip.x - middleTip.x,
-                    indexTip.y - middleTip.y
-                );
-
-                // 优化：调整手掌张开阈值，减少误判
                 const pinkyTip = handLandmarks[20];
-                const wrist = handLandmarks[0];
+
+                // 优先使用右手进行绘制和UI交互
+                if (handLabel === 'Right' && !activeHandLandmarks) {
+                    activeHandLandmarks = handLandmarks;
+                } else if (!activeHandLandmarks) {
+                    activeHandLandmarks = handLandmarks; // 如果没有右手，用左手
+                }
+
+                // 收集用于缩放的食指
+                handsForScaling.push({ label: handLabel, tip: indexTip });
+
+                // 检测“张开手掌”手势 (小指到手腕的距离)
                 const palmOpenDistance = Math.hypot(
                     pinkyTip.x - wrist.x,
                     pinkyTip.y - wrist.y
                 );
-                if (palmOpenDistance > 0.25) { // 阈值从0.2调整为0.25
-                    isHandOpen = true;
-                }
+                if (palmOpenDistance > 0.25) isHandOpen = true;
 
                 // 检测“清除”手势 (食指和中指张开)
-                if (clearDistance > 0.15) {
-                    clearGestureDetected = true;
-                }
-
-                // 收集用于缩放的食指位置
-                handsForScaling.push({ label: handLabel, tip: indexTip });
-
-                // 坐标转换：从视频坐标转换到画布坐标
-                const x = indexTip.x * canvasElement.width;
-                const y = indexTip.y * canvasElement.height;
-
-                // 处理UI选择
-                if (showUI) {
-                    const panelRect = uiPanel.getBoundingClientRect();
-                    const containerRect = container.getBoundingClientRect();
-
-                    const scaledX = x * (containerRect.width / videoWidth);
-                    const scaledY = y * (containerRect.height / videoHeight);
-
-                    const clickX = scaledX + containerRect.left - panelRect.left;
-                    const clickY = scaledY + containerRect.top - panelRect.top;
-
-                    const elements = document.elementsFromPoint(clickX + panelRect.left, clickY + panelRect.top);
-                    for (const el of elements) {
-                        if (el.closest('#ui-panel') && el.tagName === 'BUTTON' || el.tagName === 'DIV') {
-                            el.click();
-                            break;
-                        }
-                    }
-                }
-
-                // 处理书写/擦除
-                if (pinchDistance < 0.05) {
-                    if (!isDrawing) {
-                        isDrawing = true;
-                        [lastX, lastY] = [x, y];
-                    } else {
-                        if (currentTool === 'pen') {
-                            canvasCtx.beginPath();
-                            canvasCtx.moveTo(lastX, lastY);
-                            canvasCtx.lineTo(x, y);
-                            canvasCtx.strokeStyle = currentColor;
-                            canvasCtx.lineWidth = currentSize;
-                            canvasCtx.lineCap = 'round';
-                            canvasCtx.stroke();
-                        } else if (currentTool === 'eraser') {
-                            canvasCtx.clearRect(x - currentSize / 2, y - currentSize / 2, currentSize, currentSize);
-                        }
-                        [lastX, lastY] = [x, y];
-                    }
-                } else {
-                    isDrawing = false;
-                }
+                const clearDistance = Math.hypot(
+                    indexTip.x - middleTip.x,
+                    indexTip.y - middleTip.y
+                );
+                if (clearDistance > 0.15) clearGestureDetected = true;
             });
 
-            // --- 全局状态更新 ---
+            // --- 全局手势处理 ---
 
-            // 优化：UI面板防抖，避免频繁闪烁
+            // UI面板防抖
             if (isHandOpen) {
                 if (uiToggleTimeout) clearTimeout(uiToggleTimeout);
                 uiToggleTimeout = setTimeout(() => {
                     showUI = !showUI;
                     uiPanel.style.display = showUI ? 'flex' : 'none';
-                }, 300); // 300毫秒防抖延迟
+                    isDrawing = false; // 切换UI时停止绘制
+                    isScaling = false;
+                }, 300);
             }
 
-            // 处理清除画布
-            if (clearGestureDetected) {
+            // 清除画布
+            if (clearGestureDetected && !showUI) {
                 createFlakesFromCanvas();
                 canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             }
 
-            // 处理缩放
-            if (handsForScaling.length === 2) {
-                const leftHand = handsForScaling.find(h => h.label === 'Left');
-                const rightHand = handsForScaling.find(h => h.label === 'Right');
-                if (leftHand && rightHand) {
-                    const distance = Math.hypot(
-                        leftHand.tip.x - rightHand.tip.x,
-                        leftHand.tip.y - rightHand.tip.y
-                    );
-                    const scale = distance * 2;
-                    canvasElement.style.transform = `scale(${scale})`;
+            // 缩放画布
+            if (handsForScaling.length === 2 && !showUI) {
+                const distance = Math.hypot(
+                    handsForScaling[0].tip.x - handsForScaling[1].tip.x,
+                    handsForScaling[0].tip.y - handsForScaling[1].tip.y
+                );
+                if (!isScaling) {
+                    initialScaleDistance = distance;
+                    isScaling = true;
+                } else {
+                    const scaleFactor = distance / initialScaleDistance;
+                    currentScale = Math.max(0.5, Math.min(3, scaleFactor * currentScale)); // 限制缩放范围
+                    canvasElement.style.transform = `scale(${currentScale})`;
                     canvasElement.style.transformOrigin = 'center';
                 }
             } else {
-                canvasElement.style.transform = 'scale(1)';
+                isScaling = false;
+            }
+
+            // 如果没有活跃的手，或者UI正在显示，则不处理绘制
+            if (!activeHandLandmarks || showUI) {
+                isDrawing = false;
+                return;
+            }
+
+            // --- 绘制/UI交互逻辑 ---
+            const indexTip = activeHandLandmarks[8];
+            const thumbTip = activeHandLandmarks[4];
+
+            // 坐标转换
+            const x = indexTip.x * canvasElement.width;
+            const y = indexTip.y * canvasElement.height;
+
+            // 绘制/擦除逻辑
+            const pinchDistance = Math.hypot(
+                indexTip.x - thumbTip.x,
+                indexTip.y - thumbTip.y
+            );
+
+            if (pinchDistance < 0.05) { // 捏合手势
+                if (!isDrawing) {
+                    isDrawing = true;
+                    [lastX, lastY] = [x, y];
+                } else {
+                    if (currentTool === 'pen') {
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(lastX, lastY);
+                        canvasCtx.lineTo(x, y);
+                        canvasCtx.strokeStyle = currentColor;
+                        canvasCtx.lineWidth = currentSize;
+                        canvasCtx.lineCap = 'round';
+                        canvasCtx.lineJoin = 'round';
+                        canvasCtx.stroke();
+                    } else { // Eraser
+                        canvasCtx.clearRect(x - currentSize / 2, y - currentSize / 2, currentSize, currentSize);
+                    }
+                    [lastX, lastY] = [x, y];
+                }
+            } else {
+                isDrawing = false;
             }
         }
 
@@ -415,31 +425,28 @@
             }
         }
 
-        // 优化：增大粒子采样步长，减少粒子数量
         function createFlakesFromCanvas() {
             const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
             const pixels = imageData.data;
-
             flakes = [];
+            const sampleRate = 15; // 采样率，值越大粒子越少
 
-            // 步长从10改为20，减少粒子生成量
-            for (let y = 0; y < canvasElement.height; y += 20) {
-                for (let x = 0; x < canvasElement.width; x += 20) {
+            for (let y = 0; y < canvasElement.height; y += sampleRate) {
+                for (let x = 0; x < canvasElement.width; x += sampleRate) {
                     const index = (y * canvasElement.width + x) * 4;
                     const alpha = pixels[index + 3];
-                    if (alpha > 0) {
+                    if (alpha > 10) { // 忽略几乎透明的像素
                         const r = pixels[index];
                         const g = pixels[index + 1];
                         const b = pixels[index + 2];
                         const color = `rgb(${r}, ${g}, ${b})`;
-                        const size = Math.random() * 5 + 1;
+                        const size = Math.random() * 3 + 1;
                         flakes.push(new Flake(x, y, color, size));
                     }
                 }
             }
         }
 
-        // 启动摄像头
         camera.start();
     </script>
 </body>
