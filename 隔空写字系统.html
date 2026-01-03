@@ -180,6 +180,22 @@
       0% { transform: translateY(-100px) translateX(0); opacity: 1; }
       100% { transform: translateY(calc(100vh + 100px)) translateX(100px); opacity: 0; }
     }
+
+    .error-message {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 0, 0, 0.8);
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      max-width: 80%;
+      z-index: 100;
+      font-size: 1.2rem;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -212,6 +228,10 @@
     <div>4. 两只食指控制 <span class="highlight">缩放</span>, 食指与中指打开 <span class="highlight">消散</span></div>
   </div>
 
+  <div class="error-message" id="errorMessage">
+    无法加载手势识别库，请确保网络连接正常并允许摄像头访问。
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675454552/hands.min.js"></script>
   <script>
     // 全局变量
@@ -219,6 +239,7 @@
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const uiPanel = document.getElementById('ui-panel');
+    const errorMessage = document.getElementById('errorMessage');
     const penBtn = document.getElementById('pen');
     const eraserBtn = document.getElementById('eraser');
     const colorButtons = document.querySelectorAll('.color-btn');
@@ -238,35 +259,57 @@
     let isDeleting = false;
     let snowflakes = [];
 
+    // 检查MediaPipe是否已加载
+    function isMediaPipeLoaded() {
+      return typeof Hands !== 'undefined';
+    }
+
     // 初始化摄像头
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(stream => {
-        video.srcObject = stream;
-        video.onloadedmetadata = () => {
-          video.play();
-          startProcessing();
-        };
-      })
-      .catch(err => {
-        console.error('Error accessing webcam:', err);
-        alert('无法访问摄像头，请检查权限设置');
-      });
+    function initCamera() {
+      if (!isMediaPipeLoaded()) {
+        errorMessage.style.display = 'block';
+        return;
+      }
+
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          video.srcObject = stream;
+          video.onloadedmetadata = () => {
+            video.play();
+            startProcessing();
+          };
+        })
+        .catch(err => {
+          console.error('Error accessing webcam:', err);
+          errorMessage.textContent = '无法访问摄像头，请检查权限设置';
+          errorMessage.style.display = 'block';
+        });
+    }
 
     // MediaPipe Hands 初始化
-    const hands = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675454552/${file}`;
+    function initHands() {
+      if (!isMediaPipeLoaded()) {
+        errorMessage.textContent = 'MediaPipe Hands 库加载失败，请检查网络连接';
+        errorMessage.style.display = 'block';
+        return;
       }
-    });
 
-    hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
+      const hands = new Hands({
+        locateFile: (file) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675454552/${file}`;
+        }
+      });
 
-    hands.onResults(onResults);
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      hands.onResults(onResults);
+      return hands;
+    }
 
     // 开始处理视频帧
     function startProcessing() {
@@ -497,25 +540,27 @@
       }
     }
 
-    // 事件监听
-    document.addEventListener('DOMContentLoaded', () => {
-      // 颜色按钮选择
-      colorButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-          currentColor = btn.dataset.color;
-          colorButtons.forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-        });
-      });
-
-      // 大小按钮选择
-      sizeButtons.forEach(btn => {
-        btn.addEventListener('click', () => {
-          currentSize = parseInt(btn.dataset.size);
-          sizeButtons.forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-        });
-      });
+    // 初始化
+    window.addEventListener('load', () => {
+      // 检查MediaPipe是否已加载
+      if (isMediaPipeLoaded()) {
+        // 初始化Hands
+        hands = initHands();
+        initCamera();
+      } else {
+        // 如果MediaPipe未加载，添加加载事件监听器
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675454552/hands.min.js';
+        script.onload = () => {
+          hands = initHands();
+          initCamera();
+        };
+        script.onerror = () => {
+          errorMessage.textContent = 'MediaPipe Hands 库加载失败，请检查网络连接';
+          errorMessage.style.display = 'block';
+        };
+        document.head.appendChild(script);
+      }
 
       // 窗口大小变化
       window.addEventListener('resize', () => {
@@ -523,6 +568,9 @@
         canvas.height = window.innerHeight;
       });
     });
+
+    // 全局hands实例
+    let hands = null;
   </script>
 </body>
 </html>
