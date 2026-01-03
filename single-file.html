@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MediaPipe 隔空写字与交互系统</title>
+    <title>MediaPipe 隔空写字与交互系统（优化版）</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
     <style>
@@ -122,7 +122,7 @@
     </style>
 </head>
 <body>
-    <h1>MediaPipe 隔空写字与交互系统</h1>
+    <h1>MediaPipe 隔空写字与交互系统（优化版）</h1>
     <div id="container">
         <video id="video" playsinline autoplay muted></video>
         <canvas id="drawingCanvas"></canvas>
@@ -166,6 +166,7 @@
         let currentColor = '#000000';
         let currentSize = 5;
         let showUI = false;
+        let uiToggleTimeout = null; // UI防抖定时器
 
         // --- 雪花粒子系统 (用于消散效果) ---
         let flakes = [];
@@ -234,22 +235,29 @@
             locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
         });
 
+        // 优化：降低模型复杂度，减少算力消耗
         hands.setOptions({
             maxNumHands: 2,
-            modelComplexity: 1,
+            modelComplexity: 0, // 轻量模型（原1）
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
 
         hands.onResults(onResults);
 
+        // 优化：降低摄像头分辨率，减少采集数据量
         const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await hands.send({ image: videoElement });
-            },
-            width: 1280,
-            height: 720
+            onFrame: async () => { /* 改为手动控制帧率，此处留空 */ },
+            width: 640,  // 原1280
+            height: 360  // 原720
         });
+
+        // 优化：手动控制检测帧率（20帧/秒），降低算力占用
+        setInterval(async () => {
+            if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+                await hands.send({ image: videoElement });
+            }
+        }, 50);
 
         function onResults(results) {
             const container = document.getElementById('container');
@@ -279,10 +287,6 @@
             results.multiHandLandmarks.forEach((handLandmarks, index) => {
                 const handLabel = results.multiHandedness[index].label; // "Left" or "Right"
 
-                // 绘制手部关键点（可选，用于调试）
-                // drawConnectors(canvasCtx, handLandmarks, HAND_CONNECTIONS, { color: "#00FF00", lineWidth: 2 });
-                // drawLandmarks(canvasCtx, handLandmarks, { color: "#FF0000", lineWidth: 1 });
-
                 const indexTip = handLandmarks[8];
                 const thumbTip = handLandmarks[4];
                 const middleTip = handLandmarks[12];
@@ -299,19 +303,19 @@
                     indexTip.y - middleTip.y
                 );
 
-                // 检测手掌是否张开 (通过判断小指指尖与手腕的距离)
+                // 优化：调整手掌张开阈值，减少误判
                 const pinkyTip = handLandmarks[20];
                 const wrist = handLandmarks[0];
                 const palmOpenDistance = Math.hypot(
                     pinkyTip.x - wrist.x,
                     pinkyTip.y - wrist.y
                 );
-                if (palmOpenDistance > 0.2) { // 阈值可以调整
+                if (palmOpenDistance > 0.25) { // 阈值从0.2调整为0.25
                     isHandOpen = true;
                 }
 
                 // 检测“清除”手势 (食指和中指张开)
-                if (clearDistance > 0.15) { // 阈值可以调整
+                if (clearDistance > 0.15) {
                     clearGestureDetected = true;
                 }
 
@@ -337,13 +341,13 @@
                     for (const el of elements) {
                         if (el.closest('#ui-panel') && el.tagName === 'BUTTON' || el.tagName === 'DIV') {
                             el.click();
-                            break; // 只触发第一个被点击的元素
+                            break;
                         }
                     }
                 }
 
                 // 处理书写/擦除
-                if (pinchDistance < 0.05) { // 捏合手势
+                if (pinchDistance < 0.05) {
                     if (!isDrawing) {
                         isDrawing = true;
                         [lastX, lastY] = [x, y];
@@ -368,16 +372,13 @@
 
             // --- 全局状态更新 ---
 
-            // 切换UI面板显示
+            // 优化：UI面板防抖，避免频繁闪烁
             if (isHandOpen) {
-                if (!showUI) {
-                    showUI = true;
-                    uiPanel.style.display = 'flex';
-                } else {
-                    // 如果UI已显示，再次张开手掌则隐藏
-                    showUI = false;
-                    uiPanel.style.display = 'none';
-                }
+                if (uiToggleTimeout) clearTimeout(uiToggleTimeout);
+                uiToggleTimeout = setTimeout(() => {
+                    showUI = !showUI;
+                    uiPanel.style.display = showUI ? 'flex' : 'none';
+                }, 300); // 300毫秒防抖延迟
             }
 
             // 处理清除画布
@@ -395,9 +396,7 @@
                         leftHand.tip.x - rightHand.tip.x,
                         leftHand.tip.y - rightHand.tip.y
                     );
-                    // 简单实现：根据双手指尖距离调整画布缩放
-                    // 这是一个基础实现，可以扩展为更平滑的缩放
-                    const scale = distance * 2; // 映射距离到缩放比例
+                    const scale = distance * 2;
                     canvasElement.style.transform = `scale(${scale})`;
                     canvasElement.style.transformOrigin = 'center';
                 }
@@ -416,23 +415,23 @@
             }
         }
 
+        // 优化：增大粒子采样步长，减少粒子数量
         function createFlakesFromCanvas() {
             const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
             const pixels = imageData.data;
 
-            flakes = []; // 清空旧的雪花
+            flakes = [];
 
-            // 以一定步长采样像素，避免粒子过多
-            for (let y = 0; y < canvasElement.height; y += 10) {
-                for (let x = 0; x < canvasElement.width; x += 10) {
+            // 步长从10改为20，减少粒子生成量
+            for (let y = 0; y < canvasElement.height; y += 20) {
+                for (let x = 0; x < canvasElement.width; x += 20) {
                     const index = (y * canvasElement.width + x) * 4;
                     const alpha = pixels[index + 3];
-                    if (alpha > 0) { // 如果像素不是透明的
+                    if (alpha > 0) {
                         const r = pixels[index];
                         const g = pixels[index + 1];
                         const b = pixels[index + 2];
                         const color = `rgb(${r}, ${g}, ${b})`;
-                        // 随机大小的粒子
                         const size = Math.random() * 5 + 1;
                         flakes.push(new Flake(x, y, color, size));
                     }
